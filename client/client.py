@@ -1,4 +1,4 @@
-import sys
+'''import sys
 import os
 import threading
 import time
@@ -327,6 +327,234 @@ def main():
     client.show()
     sys.exit(app.exec_())
 
+
+if __name__ == "__main__":
+    main()'''
+
+import sys
+import os
+import threading
+import time
+import base64
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLabel, QLineEdit, QMessageBox, QFrame
+)
+from PyQt5.QtGui import QPixmap, QImage, QPainter
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
+
+# Add the parent directory to the path so we can import common modules
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from common.network import NetworkManager, MSG_FRAME, MSG_MOUSE_MOVE, MSG_MOUSE_CLICK, MSG_KEY_PRESS, MSG_KEY_RELEASE
+
+LOGO_PATH = os.path.join(os.path.dirname(__file__), "logo.png")
+
+class FrameReceiver(QThread):
+    """Thread to receive screen frames from the host"""
+    frame_received = pyqtSignal(QImage)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, network):
+        super().__init__()
+        self.network = network
+        self.running = False
+
+    def run(self):
+        self.running = True
+        while self.running:
+            try:
+                data = self.network.receive_data()
+                if not data or data.get('type') != MSG_FRAME:
+                    continue
+
+                img_bytes = base64.b64decode(data.get('data', ''))
+                q_img = QImage.fromData(img_bytes)
+                if q_img.isNull():
+                    self.error_occurred.emit("Received invalid image data")
+                    continue
+
+                # Emit QImage; conversion to QPixmap in main thread
+                self.frame_received.emit(q_img)
+            except Exception as e:
+                self.error_occurred.emit(f"Error receiving frame: {e}")
+                time.sleep(1)
+
+    def stop(self):
+        self.running = False
+        self.wait()
+
+class ConnectionWindow(QWidget):
+    """Initial connection dialog"""
+    connected = pyqtSignal(str, int)
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Connect to Remote Host")
+        self.setFixedSize(500, 300)
+        layout = QVBoxLayout(self)
+
+        # Logo
+        logo = QLabel()
+        pixmap = QPixmap(LOGO_PATH)
+        logo.setPixmap(pixmap.scaled(450, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo.setAlignment(Qt.AlignCenter)
+        layout.addWidget(logo)
+
+        # IP and Port Fields
+        self.host_input = QLineEdit("localhost")
+        self.host_input.setPlaceholderText("Host IP or hostname")
+        layout.addWidget(self.host_input)
+
+        self.port_input = QLineEdit("9999")
+        self.port_input.setPlaceholderText("Port")
+        layout.addWidget(self.port_input)
+
+        # Connect Button
+        connect_btn = QPushButton("Connect")
+        connect_btn.clicked.connect(self.try_connect)
+        layout.addWidget(connect_btn)
+        layout.setAlignment(connect_btn, Qt.AlignCenter)
+
+    def try_connect(self):
+        try:
+            port = int(self.port_input.text())
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Port", "Enter a valid port number.")
+            return
+        self.connected.emit(self.host_input.text(), port)
+
+class RemoteView(QFrame):
+    """Widget to display the remote screen and handle input with green border"""
+    def __init__(self, network):
+        super().__init__()
+        self.network = network
+        self.setFrameStyle(QFrame.Box)
+        self.setLineWidth(2)
+        self.setStyleSheet("QFrame { border: 2px solid green; }")
+        self.remote_pixmap = None
+        self.remote_width = 0
+        self.remote_height = 0
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setMouseTracking(True)
+
+    def update_frame(self, q_img):
+        pixmap = QPixmap.fromImage(q_img)
+        self.remote_pixmap = pixmap
+        self.remote_width = pixmap.width()
+        self.remote_height = pixmap.height()
+        # Removed automatic minimum size to avoid geometry conflicts
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.remote_pixmap:
+            painter = QPainter(self)
+            painter.drawPixmap(0, 0, self.remote_pixmap)
+
+    def mouseMoveEvent(self, event):
+        if not self.remote_width or not self.remote_height:
+            return
+        x_ratio = event.x() / self.remote_width
+        y_ratio = event.y() / self.remote_height
+        self.network.send_data({'type': MSG_MOUSE_MOVE, 'x': x_ratio, 'y': y_ratio})
+
+    def mousePressEvent(self, event):
+        if not self.remote_width or not self.remote_height:
+            return
+        x_ratio = event.x() / self.remote_width
+        y_ratio = event.y() / self.remote_height
+        button = 'left'
+        if event.button() == Qt.RightButton:
+            button = 'right'
+        self.network.send_data({'type': MSG_MOUSE_CLICK, 'x': x_ratio, 'y': y_ratio,'button': button,'clicks': 1})
+
+    def keyPressEvent(self, event):
+        key = event.text().lower() or None
+        if key:
+            self.network.send_data({'type': MSG_KEY_PRESS, 'key': key})
+
+    def keyReleaseEvent(self, event):
+        key = event.text().lower() or None
+        if key:
+            self.network.send_data({'type': MSG_KEY_RELEASE, 'key': key})
+
+class ScreenWindow(QMainWindow):
+    """Main screen-sharing window"""
+    def __init__(self, network):
+        super().__init__()
+        self.network = network
+        self.setWindowTitle("Remote Control Session")
+        self.init_ui()
+
+    def init_ui(self):
+        central = QWidget()
+        vlay = QVBoxLayout(central)
+        vlay.setContentsMargins(0, 0, 0, 0)
+
+        # Top bar
+        bar = QWidget()
+        bar.setFixedHeight(50)
+        bar.setStyleSheet("background-color:#f0f0f0;")
+        hlay = QHBoxLayout(bar)
+        hlay.setContentsMargins(10, 0, 10, 0)
+
+        logo = QLabel()
+        pixmap = QPixmap(LOGO_PATH)
+        logo.setPixmap(pixmap.scaledToHeight(40, Qt.SmoothTransformation))
+        hlay.addWidget(logo)
+        hlay.addStretch()
+
+        disc_btn = QPushButton("Disconnect")
+        disc_btn.setStyleSheet("background-color:red;color:white;padding:5px;")
+        disc_btn.clicked.connect(self.confirm_disconnect)
+        hlay.addWidget(disc_btn)
+
+        vlay.addWidget(bar)
+
+        # Remote view
+        self.remote_view = RemoteView(self.network)
+        vlay.addWidget(self.remote_view)
+
+        self.setCentralWidget(central)
+
+    def confirm_disconnect(self):
+        reply = QMessageBox.question(self, "Disconnect",
+            "Are you sure you want to disconnect?", QMessageBox.Yes | QMessageBox.Cancel)
+        if reply == QMessageBox.Yes:
+            QApplication.quit()
+
+class RemoteClientApp:
+    def __init__(self):
+        self.app = QApplication(sys.argv)
+        self.network = NetworkManager(is_server=False)
+        self.conn_win = ConnectionWindow()
+        self.conn_win.connected.connect(self.start_session)
+        self.conn_win.show()
+
+    def start_session(self, host, port):
+        self.conn_win.close()
+        if not self.network.connect(host, port) or not self.network.authenticate():
+            QMessageBox.warning(None, "Connection Failed", f"Could not connect to {host}:{port}")
+            self.app.quit()
+            return
+        # Instantiate and show screen window first
+        self.screen_win = ScreenWindow(self.network)
+        self.screen_win.showMaximized()
+
+        # Start frame receiver and hook it to the screen view
+        self.receiver = FrameReceiver(self.network)
+        self.receiver.frame_received.connect(self.screen_win.remote_view.update_frame)
+        self.receiver.error_occurred.connect(self.handle_error)
+        self.receiver.start()
+
+    def handle_error(self, msg):
+        QMessageBox.warning(self.screen_win, "Error", msg)
+        self.app.quit()
+
+
+def main():
+    app = RemoteClientApp()
+    sys.exit(app.app.exec_())
 
 if __name__ == "__main__":
     main()
