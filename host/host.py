@@ -197,7 +197,6 @@ import pyautogui
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common.network import NetworkManager, MSG_FRAME, MSG_MOUSE_MOVE, MSG_MOUSE_CLICK, MSG_KEY_PRESS, MSG_KEY_RELEASE
 
-
 class RemoteHost:
     def __init__(self, host='0.0.0.0', port=9999, quality=70, frame_rate=15):
         self.host = host
@@ -241,18 +240,20 @@ class RemoteHost:
                 time.sleep(0.001)
                 continue
 
+            # Capture the screen
             screenshot = self.screen_capture.grab(monitor)
             img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
 
-            # ✅ Draw green border
-            draw = ImageDraw.Draw(img)
+            # Draw green border indicating active remote control
             border_thickness = 5
+            draw = ImageDraw.Draw(img)
             for i in range(border_thickness):
                 draw.rectangle(
                     [i, i, img.width - 1 - i, img.height - 1 - i],
                     outline="lime"
                 )
 
+            # Encode and send frame
             buffer = io.BytesIO()
             img.save(buffer, format="JPEG", quality=self.quality)
             img_bytes = buffer.getvalue()
@@ -280,12 +281,13 @@ class RemoteHost:
                     continue
 
                 msg_type = data.get('type')
-
+                # Mouse move
                 if msg_type == MSG_MOUSE_MOVE:
                     x = int(data.get('x', 0) * self.screen_width)
                     y = int(data.get('y', 0) * self.screen_height)
                     pyautogui.moveTo(x, y)
 
+                # Mouse click
                 elif msg_type == MSG_MOUSE_CLICK:
                     x = int(data.get('x', 0) * self.screen_width)
                     y = int(data.get('y', 0) * self.screen_height)
@@ -293,11 +295,13 @@ class RemoteHost:
                     clicks = data.get('clicks', 1)
                     pyautogui.click(x, y, clicks=clicks, button=button)
 
+                # Key press
                 elif msg_type == MSG_KEY_PRESS:
                     key = data.get('key')
                     if key:
                         pyautogui.keyDown(key)
 
+                # Key release
                 elif msg_type == MSG_KEY_RELEASE:
                     key = data.get('key')
                     if key:
@@ -339,6 +343,6 @@ def main():
     finally:
         host.stop()
 
-
 if __name__ == "__main__":
     main()
+

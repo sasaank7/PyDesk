@@ -341,7 +341,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QMessageBox, QFrame
 )
 from PyQt5.QtGui import QPixmap, QImage, QPainter
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QRect
 
 # Add the parent directory to the path so we can import common modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -349,8 +349,8 @@ from common.network import NetworkManager, MSG_FRAME, MSG_MOUSE_MOVE, MSG_MOUSE_
 
 LOGO_PATH = os.path.join(os.path.dirname(__file__), "logo.png")
 
+
 class FrameReceiver(QThread):
-    """Thread to receive screen frames from the host"""
     frame_received = pyqtSignal(QImage)
     error_occurred = pyqtSignal(str)
 
@@ -373,7 +373,6 @@ class FrameReceiver(QThread):
                     self.error_occurred.emit("Received invalid image data")
                     continue
 
-                # Emit QImage; conversion to QPixmap in main thread
                 self.frame_received.emit(q_img)
             except Exception as e:
                 self.error_occurred.emit(f"Error receiving frame: {e}")
@@ -383,8 +382,8 @@ class FrameReceiver(QThread):
         self.running = False
         self.wait()
 
+
 class ConnectionWindow(QWidget):
-    """Initial connection dialog"""
     connected = pyqtSignal(str, int)
 
     def __init__(self):
@@ -393,14 +392,12 @@ class ConnectionWindow(QWidget):
         self.setFixedSize(500, 300)
         layout = QVBoxLayout(self)
 
-        # Logo
         logo = QLabel()
         pixmap = QPixmap(LOGO_PATH)
         logo.setPixmap(pixmap.scaled(450, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         logo.setAlignment(Qt.AlignCenter)
         layout.addWidget(logo)
 
-        # IP and Port Fields
         self.host_input = QLineEdit("localhost")
         self.host_input.setPlaceholderText("Host IP or hostname")
         layout.addWidget(self.host_input)
@@ -409,7 +406,6 @@ class ConnectionWindow(QWidget):
         self.port_input.setPlaceholderText("Port")
         layout.addWidget(self.port_input)
 
-        # Connect Button
         connect_btn = QPushButton("Connect")
         connect_btn.clicked.connect(self.try_connect)
         layout.addWidget(connect_btn)
@@ -423,8 +419,8 @@ class ConnectionWindow(QWidget):
             return
         self.connected.emit(self.host_input.text(), port)
 
+
 class RemoteView(QFrame):
-    """Widget to display the remote screen and handle input with green border"""
     def __init__(self, network):
         super().__init__()
         self.network = network
@@ -442,31 +438,35 @@ class RemoteView(QFrame):
         self.remote_pixmap = pixmap
         self.remote_width = pixmap.width()
         self.remote_height = pixmap.height()
-        # Removed automatic minimum size to avoid geometry conflicts
         self.update()
 
     def paintEvent(self, event):
         super().paintEvent(event)
         if self.remote_pixmap:
             painter = QPainter(self)
-            painter.drawPixmap(0, 0, self.remote_pixmap)
+            target_rect = self.rect()
+            painter.drawPixmap(target_rect, self.remote_pixmap)
 
     def mouseMoveEvent(self, event):
         if not self.remote_width or not self.remote_height:
             return
-        x_ratio = event.x() / self.remote_width
-        y_ratio = event.y() / self.remote_height
+        x_ratio = event.x() / self.width()
+        y_ratio = event.y() / self.height()
         self.network.send_data({'type': MSG_MOUSE_MOVE, 'x': x_ratio, 'y': y_ratio})
 
     def mousePressEvent(self, event):
         if not self.remote_width or not self.remote_height:
             return
-        x_ratio = event.x() / self.remote_width
-        y_ratio = event.y() / self.remote_height
-        button = 'left'
-        if event.button() == Qt.RightButton:
-            button = 'right'
-        self.network.send_data({'type': MSG_MOUSE_CLICK, 'x': x_ratio, 'y': y_ratio,'button': button,'clicks': 1})
+        x_ratio = event.x() / self.width()
+        y_ratio = event.y() / self.height()
+        button = 'left' if event.button() == Qt.LeftButton else 'right'
+        self.network.send_data({
+            'type': MSG_MOUSE_CLICK,
+            'x': x_ratio,
+            'y': y_ratio,
+            'button': button,
+            'clicks': 1
+        })
 
     def keyPressEvent(self, event):
         key = event.text().lower() or None
@@ -478,12 +478,16 @@ class RemoteView(QFrame):
         if key:
             self.network.send_data({'type': MSG_KEY_RELEASE, 'key': key})
 
+
 class ScreenWindow(QMainWindow):
-    """Main screen-sharing window"""
     def __init__(self, network):
         super().__init__()
         self.network = network
         self.setWindowTitle("Remote Control Session")
+
+        # Uncomment to remove OS title bar (optional)
+        # self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+
         self.init_ui()
 
     def init_ui(self):
@@ -491,7 +495,6 @@ class ScreenWindow(QMainWindow):
         vlay = QVBoxLayout(central)
         vlay.setContentsMargins(0, 0, 0, 0)
 
-        # Top bar
         bar = QWidget()
         bar.setFixedHeight(50)
         bar.setStyleSheet("background-color:#f0f0f0;")
@@ -511,7 +514,6 @@ class ScreenWindow(QMainWindow):
 
         vlay.addWidget(bar)
 
-        # Remote view
         self.remote_view = RemoteView(self.network)
         vlay.addWidget(self.remote_view)
 
@@ -522,6 +524,7 @@ class ScreenWindow(QMainWindow):
             "Are you sure you want to disconnect?", QMessageBox.Yes | QMessageBox.Cancel)
         if reply == QMessageBox.Yes:
             QApplication.quit()
+
 
 class RemoteClientApp:
     def __init__(self):
@@ -537,11 +540,14 @@ class RemoteClientApp:
             QMessageBox.warning(None, "Connection Failed", f"Could not connect to {host}:{port}")
             self.app.quit()
             return
-        # Instantiate and show screen window first
-        self.screen_win = ScreenWindow(self.network)
-        self.screen_win.showMaximized()
 
-        # Start frame receiver and hook it to the screen view
+        self.screen_win = ScreenWindow(self.network)
+
+        # Fill available screen (prevents cropping by OS UI elements)
+        screen_rect = QApplication.primaryScreen().availableGeometry()
+        self.screen_win.setGeometry(screen_rect)
+        self.screen_win.show()
+
         self.receiver = FrameReceiver(self.network)
         self.receiver.frame_received.connect(self.screen_win.remote_view.update_frame)
         self.receiver.error_occurred.connect(self.handle_error)
@@ -556,5 +562,7 @@ def main():
     app = RemoteClientApp()
     sys.exit(app.app.exec_())
 
+
 if __name__ == "__main__":
     main()
+
