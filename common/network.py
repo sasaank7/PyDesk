@@ -1,7 +1,6 @@
 import socket
 import struct
 import pickle
-import base64
 import ssl
 from cryptography.fernet import Fernet
 
