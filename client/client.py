@@ -396,6 +396,14 @@ class ScreenWindow(QMainWindow):
         h.addWidget(logo)
         h.addStretch()
 
+        # Focus Mode button
+        self.fullscreen_btn = QPushButton("Focus Mode")
+        self.fullscreen_btn.setCheckable(True)
+        self.fullscreen_btn.setStyleSheet("padding:5px;")
+        self.fullscreen_btn.clicked.connect(self.toggle_fullscreen)
+        h.addWidget(self.fullscreen_btn)
+
+        # Disconnect button
         disc = QPushButton("Disconnect")
         disc.setStyleSheet("background-color:red;color:white;padding:5px;")
         disc.clicked.connect(lambda: QApplication.quit())
@@ -408,10 +416,17 @@ class ScreenWindow(QMainWindow):
         self.setCentralWidget(c)
 
     def show_fullscreen(self):
-        # Fit available geometry (avoids taskbar clipping)
-        geom = QApplication.primaryScreen().availableGeometry()
-        self.setGeometry(geom)
-        self.show()
+        self.showMaximized()
+
+    def toggle_fullscreen(self):
+        if self.fullscreen_btn.isChecked():
+            self.fullscreen_btn.setText("Exit Focus Mode")
+            self.showFullScreen()
+        else:
+            self.fullscreen_btn.setText("Focus Mode")
+            self.showNormal()
+            self.showMaximized()
+
 
 
 class RemoteClientApp:
