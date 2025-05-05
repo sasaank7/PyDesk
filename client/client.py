@@ -1,12 +1,10 @@
 import sys
 import os
-import threading
 import time
-
 import lz4.frame
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QLineEdit, QMessageBox, QFrame
+    QPushButton, QLabel, QMessageBox, QFrame
 )
 from PyQt5.QtGui import QPixmap, QImage, QPainter
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
@@ -54,40 +52,6 @@ class FrameReceiver(QThread):
     def stop(self):
         self.running = False
         self.wait()
-
-
-class ConnectionWindow(QWidget):
-    connected = pyqtSignal(str, int)
-
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Connect to Remote Host")
-        self.setFixedSize(500, 300)
-        layout = QVBoxLayout(self)
-
-        logo = QLabel()
-        pix = QPixmap(LOGO_PATH)
-        logo.setPixmap(pix.scaled(450, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        logo.setAlignment(Qt.AlignCenter)
-        layout.addWidget(logo)
-
-        self.host_input = QLineEdit("localhost")
-        layout.addWidget(self.host_input)
-
-        self.port_input = QLineEdit("9999")
-        layout.addWidget(self.port_input)
-
-        btn = QPushButton("Connect")
-        btn.clicked.connect(self.on_connect)
-        layout.addWidget(btn, alignment=Qt.AlignCenter)
-
-    def on_connect(self):
-        try:
-            port = int(self.port_input.text())
-        except ValueError:
-            QMessageBox.warning(self, "Invalid Port", "Enter a valid port.")
-            return
-        self.connected.emit(self.host_input.text(), port)
 
 
 class RemoteView(QFrame):
@@ -190,17 +154,15 @@ class ScreenWindow(QMainWindow):
             self.showMaximized()
 
 
-
 class RemoteClientApp:
     def __init__(self):
         self.app = QApplication(sys.argv)
         self.network = NetworkManager(is_server=False)
-        self.conn = ConnectionWindow()
-        self.conn.connected.connect(self.start)
-        self.conn.show()
 
-    def start(self, host, port):
-        self.conn.close()
+        # Hardcoded host and port
+        host = "localhost"
+        port = 9999
+
         if not (self.network.connect(host, port) and self.network.authenticate()):
             QMessageBox.warning(None, "Connection Failed", f"{host}:{port}")
             self.app.quit()

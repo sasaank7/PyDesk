@@ -67,7 +67,7 @@ class NetworkManager:
                 self.socket = context.wrap_socket(self.socket)
 
             self.socket.connect((host, port))
-            print(f"Connected to {host}:{port}")
+            print(f"Connecting....")
 
             # Receive encryption key
             self.encryption_key = self._recv_raw()

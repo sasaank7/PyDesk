@@ -1,6 +1,8 @@
 import sys
 import argparse
+import os
 
+sys.path.insert(0, os.path.dirname(__file__))
 
 def main():
     parser = argparse.ArgumentParser(description='Remote Access and Control MVP')
@@ -16,17 +18,14 @@ def main():
     args = parser.parse_args()
 
     if args.mode == 'host':
-        # Import and run host
         try:
             from host.host import RemoteHost
-
             host = RemoteHost(
                 host=args.host,
                 port=args.port,
                 quality=args.quality,
                 frame_rate=args.fps
             )
-
             if host.start():
                 print("Press Ctrl+C to stop the server")
                 try:
@@ -42,8 +41,8 @@ def main():
             return 1
 
     elif args.mode == 'client':
-        # Import and run client
         try:
+            #print("sys.path:", sys.path)
             from client.client import main as client_main
             client_main()
         except ImportError:
@@ -51,7 +50,6 @@ def main():
             return 1
 
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
